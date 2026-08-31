@@ -16,3 +16,36 @@
 @media(max-width:760px){.processing-settings{padding:17px 20px;margin-bottom:14px;border-radius:13px}.settings-fields{gap:12px;flex-wrap:wrap}.settings-fields label{flex:1 1 calc(50% - 6px)}.settings-fields label>span{font-size:10px}.settings-fields select{font-size:11px;padding-left:9px;padding-right:17px}.settings-scope{flex-basis:100%;padding-bottom:0;margin:0;font-size:9px}.settings-help{font-size:10px;margin-top:11px}.conversion-info{margin:0 15px 11px 58px;font-size:10px;gap:6px 8px}.conversion-info small{font-size:9px}.process-tag{font-size:9px}.pending-result{padding-left:0;font-size:10px}.summary-stats strong.pending-count{font-size:14px;line-height:27px}.converted-size{display:block}}
 @media(max-width:390px){.processing-settings{padding:16px}.settings-fields{gap:12px}.settings-fields label{flex-basis:100%}.settings-fields small{font-size:9px}.conversion-info{margin-left:55px}.summary-stats strong.pending-count{font-size:12px}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+
+/* Installation stays secondary to the video workspace. */
+.header-actions{display:flex;align-items:center;gap:22px}
+.install-button{height:40px;padding:0 13px;font-size:12px;box-shadow:none}
+.mobile-privacy{display:none}
+.install-dialog{width:min(510px,calc(100% - 32px));max-height:calc(100vh - 48px);max-height:calc(100dvh - 48px);margin:auto;padding:28px;border:1px solid var(--line);border-radius:20px;background:#fff;color:var(--ink);box-shadow:0 20px 80px #152e522e;overflow:auto;overscroll-behavior:contain}
+.install-dialog::backdrop{background:#17263e75;backdrop-filter:blur(3px)}
+.install-heading{display:flex;align-items:center;justify-content:space-between;gap:14px}
+.install-eyebrow{font-size:10px;font-weight:700;letter-spacing:1.4px;color:var(--blue)}
+.install-heading h2{margin-top:7px;font-size:25px;font-weight:700;letter-spacing:-.7px}
+.install-heading .icon-button{width:44px;height:44px;color:#75849a}
+#install-description{margin-top:13px;color:#738097;font-size:13px;line-height:1.8}
+.install-warning{margin-top:20px;padding:16px;background:#fff8ed;border:1px solid #f1dfbd;border-radius:12px;color:#825f32}
+.install-warning strong{font-size:13px}
+.install-warning p{margin-top:7px;font-size:12px;line-height:1.9}
+.install-ack{display:flex;align-items:flex-start;gap:9px;margin-top:12px;padding-top:12px;border-top:1px solid #efdfc5;font-size:12px;line-height:1.8;cursor:pointer}
+.install-ack input{flex:none;width:18px;height:18px;margin:2px 0;accent-color:var(--blue)}
+.install-ack input:focus-visible,.install-url-row input:focus-visible{outline:3px solid #8eb2ff;outline-offset:3px}
+.install-status{margin-top:16px;padding:12px 14px;background:var(--soft);border-radius:10px;color:#4569a1;font-size:12px;line-height:1.8}
+#install-guide{margin-top:24px}
+#install-platform{font-size:13px;font-weight:650;color:#526681}
+#install-steps{list-style:none;counter-reset:install;display:grid;gap:14px;padding:0;margin:17px 0}
+#install-steps li{counter-increment:install;position:relative;padding-left:33px;font-size:13px;line-height:1.9;color:#66758d}
+#install-steps li::before{content:counter(install);position:absolute;left:0;top:1px;width:23px;height:23px;display:grid;place-items:center;background:var(--soft);color:var(--blue);border-radius:7px;font-size:11px;font-weight:700;line-height:1}
+.install-in-app{font-size:11px;line-height:1.8;color:#8a96a9}
+.install-url-label{display:block;margin:18px 0 7px;font-size:11px;font-weight:600;color:#71829a}
+.install-url-row{display:flex;gap:8px}
+.install-url-row input{min-width:0;flex:1;font:inherit;font-size:12px;padding:0 11px;height:44px;border:1px solid #dfe6f2;border-radius:9px;color:#597194;background:#f9fbfe}
+.install-url-row .button{padding:0 13px;font-size:12px}
+.install-note{margin-top:22px;padding-top:18px;border-top:1px solid var(--line);font-size:11px;line-height:1.9;color:#8795aa}
+.install-actions{display:flex;justify-content:flex-end;gap:9px;margin-top:22px}
+.install-actions .button{min-width:100px}
+@media(max-width:760px){.header-actions{gap:0}.header-actions .privacy-label{display:none}.install-button{height:40px;padding:0 11px;font-size:11px;gap:6px}.install-button .icon{width:16px;height:16px}.mobile-privacy{display:flex;margin-top:10px;font-size:10px}.install-dialog{width:100%;max-height:90vh;max-height:90dvh;margin:auto 0 0;padding:24px 22px calc(24px + env(safe-area-inset-bottom));border-radius:22px 22px 0 0}.install-heading h2{font-size:23px}.install-actions .button{flex:1}.install-url-row input{font-size:12px}}

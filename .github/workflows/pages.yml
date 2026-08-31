@@ -28,6 +28,8 @@ jobs:
           node-version: '24'
           cache: npm
       - run: npm ci
+      - name: Generate installation icons
+        run: npm run icons:generate
       - run: npm test
       - name: Ensure FFmpeg is available for generated-media tests
         run: |
@@ -38,6 +40,14 @@ jobs:
       - run: npm run test:media
       - run: npm run test:resize
       - run: npm run build
+      - name: Verify installation assets and record deployment hashes
+        run: |
+          test -s dist/manifest.webmanifest
+          test -s dist/icons/icon-192.png
+          test -s dist/icons/icon-512.png
+          test -s dist/icons/maskable-512.png
+          test -s dist/icons/apple-touch-icon.png
+          sha256sum dist/index.html dist/manifest.webmanifest dist/icons/*.png dist/assets/*
       - name: Upload Pages build
         if: github.event_name != 'pull_request'
         uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3

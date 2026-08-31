@@ -1,6 +1,6 @@
 {
   "name": "video-splitter",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -9,7 +9,8 @@
     "preview": "vite preview --host 0.0.0.0",
     "test": "node --experimental-strip-types --test tests/*.test.ts",
     "test:media": "node --experimental-strip-types scripts/verify-media.ts",
-    "test:resize": "node --experimental-strip-types scripts/verify-resize.ts"
+    "test:resize": "node --experimental-strip-types scripts/verify-resize.ts",
+    "icons:generate": "node --experimental-strip-types scripts/generate-icons.ts"
   },
   "dependencies": {
     "mediabunny": "1.55.4"

@@ -1,6 +1,8 @@
 import './style.css';
 import { WorkerBridge } from './bridge.ts';
 import { runSequential } from './queue.ts';
+import { setupInstall } from './install-ui.ts';
+import type { InstallUI } from './install-ui.ts';
 import { DEFAULT_OPTIONS, errorMessage, escapeHtml as esc, formatBytes, formatEta, formatTime, KAKAO_REFERENCE_BYTES, modeLabel } from './model.ts';
 import type { ProcessingMode, ProcessingOptions, ProcessingPlan, Resolution, SegmentResult, SplitProgress, VideoInfo } from './model.ts';
 
@@ -15,6 +17,8 @@ let options: ProcessingOptions = { ...DEFAULT_OPTIONS };
 let lastResizeResolution: Resolution = 1080;
 let processing = false;
 let inspecting = false;
+let installUI: InstallUI | undefined;
+const workLocked = () => processing || inspecting || !!installUI?.prompting;
 let controller: AbortController | undefined;
 let activeRequest: string | undefined;
 let startedAt = 0;
@@ -47,11 +51,11 @@ const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getEleme
 $('app').innerHTML = `
   <header class="site-header">
     <a class="brand" href="./" aria-label="Video Splitter 처음으로"><span class="brand-mark">${icon('split')}</span><span>Video Splitter<span class="brand-dot">.</span></span></a>
-    <span class="privacy-label">${icon('shield')} 내 기기에서만 처리</span>
+    <div class="header-actions"><span class="privacy-label">${icon('shield')} 내 기기에서만 처리</span><button id="install-app" class="button secondary install-button" type="button">${icon('download')}<span data-install-label>설치 방법</span></button></div>
   </header>
   <main class="workspace">
     <section class="intro" aria-labelledby="page-title">
-      <div><span class="eyebrow">원본은 그대로, 공유는 가볍게</span><h1 id="page-title">영상 나누기</h1><p>해상도 변경부터 시간 분할까지, 여러 영상을 하나씩 순서대로.</p></div>
+      <div><span class="eyebrow">원본은 그대로, 공유는 가볍게</span><h1 id="page-title">영상 나누기</h1><p>해상도 변경부터 시간 분할까지, 여러 영상을 하나씩 순서대로.</p><span class="privacy-label mobile-privacy">${icon('shield')} 내 기기에서만 처리</span></div>
       <span id="mode-badge" class="mode-badge">${icon('split')} <strong>250 MB</strong><span>기준 · 시간 균등 분할</span></span>
     </section>
 
@@ -94,7 +98,7 @@ $('app').innerHTML = `
       ${icon('shield')}
       <div><strong>영상은 서버로 전송하지 않아요.</strong><p>250MB는 조각 수 계산 기준이며 용량 상한은 아니에요. 시간으로 나누므로 실제 용량은 달라질 수 있고, 구간은 기준 프레임에 맞춰 조금 조정됩니다.</p><p>해상도를 낮추면 영상만 다시 인코딩해요. 시간이 더 걸리고 기기가 뜨거워질 수 있으며, 변환본과 분할 결과를 위한 임시 공간이 필요합니다.</p><p>처리 중에는 이 화면을 열어두고, 완료 후에는 필요한 결과를 저장해 주세요. 페이지를 다시 열면 임시 결과는 정리됩니다.</p></div>
     </aside>
-    <footer class="page-footer"><span>VIDEO SPLITTER</span><span>v1.1.0 · 원본 파일은 변경하지 않습니다 · <a href="./third-party-notices.txt" target="_blank" rel="noopener">오픈소스 안내</a></span></footer>
+    <footer class="page-footer"><span>VIDEO SPLITTER</span><span>v1.2.0 · 원본 파일은 변경하지 않습니다 · <a href="./third-party-notices.txt" target="_blank" rel="noopener">오픈소스 안내</a></span></footer>
   </main>
 
   <div id="action-bar" class="action-bar" hidden>
@@ -119,9 +123,9 @@ function renderSettings(): void {
   const mode = $<HTMLSelectElement>('processing-mode');
   const resolution = $<HTMLSelectElement>('resolution');
   mode.value = options.mode;
-  mode.disabled = processing || inspecting;
+  mode.disabled = workLocked();
   resolution.value = String(options.resolution);
-  resolution.disabled = processing || inspecting || options.mode === 'split';
+  resolution.disabled = workLocked() || options.mode === 'split';
   resolution.options[0].disabled = options.mode !== 'split';
   $('settings-help').textContent = options.mode === 'split'
     ? '재압축 없이 원본 화질을 유지하며, 250MB 기준으로 조각 수를 계산해요.'
@@ -161,11 +165,12 @@ function renderSummary(): void {
   $('stat-parts').innerHTML = unknownParts ? '변환 후 확정' : `${parts}<small>개</small>`;
   $('stat-parts').classList.toggle('pending-count', unknownParts);
   $('clear-completed').hidden = !done;
-  ($('clear-completed') as HTMLButtonElement).disabled = processing || inspecting;
-  ($('pick-files') as HTMLButtonElement).disabled = processing || inspecting;
-  $('drop-zone').classList.toggle('disabled', processing || inspecting);
+  ($('clear-completed') as HTMLButtonElement).disabled = workLocked();
+  ($('pick-files') as HTMLButtonElement).disabled = workLocked();
+  ($('file-input') as HTMLInputElement).disabled = workLocked();
+  $('drop-zone').classList.toggle('disabled', workLocked());
   $('start').hidden = processing;
-  ($('start') as HTMLButtonElement).disabled = inspecting || ready.length === 0;
+  ($('start') as HTMLButtonElement).disabled = workLocked() || ready.length === 0;
   $('start').innerHTML = inspecting ? '<span class="spinner"></span> 영상 정보 확인 중' : ready.length ? `순차 처리 시작 ${icon('arrow')}` : errors ? '파일 확인 필요' : `${icon('check')} 작업 완료`;
   $('stop').hidden = !processing;
   ($('stop') as HTMLButtonElement).disabled = !!controller?.signal.aborted;
@@ -173,6 +178,7 @@ function renderSummary(): void {
   $('action-subtitle').textContent = processing ? '완료된 결과는 처리 중에도 저장할 수 있어요.' : `${formatBytes(totalBytes)} · ${unknownParts ? '결과 수는 변환 후 확정' : `예상 결과 ${parts}개`} · 원본 보관`;
   renderSettings();
   updateOverall();
+  installUI?.refresh();
 }
 
 function updateOverall(): void {
@@ -234,10 +240,10 @@ function renderJob(job: Job): string {
     : count > 1 ? '예상 구간입니다. 재압축 없는 분할 지점에 따라 조금 달라질 수 있어요.'
     : plan?.reencode ? '해상도 변경이 끝났어요. 변환 파일을 하나로 저장합니다.' : '변경할 필요가 없어 원본 파일을 그대로 제공합니다.';
   return `<article class="file-card state-${job.state}" data-job-card="${job.id}">
-    <div class="file-top"><span class="file-icon">${icon(job.state === 'done' ? 'check' : 'video')}</span><div class="file-title"><h3 title="${esc(job.file.name)}">${esc(job.file.name)}</h3><p>${formatBytes(job.file.size)}${info ? `<span>·</span>${formatTime(info.duration)}<span>·</span>${info.width} × ${info.height}${info.audioTracks === 0 ? '<span>·</span>소리 없음' : ''}` : '<span>·</span>재생시간 확인 중'}</p></div><span class="status-badge">${job.state === 'analyzing' || job.state === 'running' ? '<span class="spinner"></span>' : ''}${stateLabel(job)}</span><button class="icon-button remove-file" data-action="remove" data-job="${job.id}" aria-label="${esc(job.file.name)} 목록에서 제거" ${processing || inspecting ? 'disabled' : ''}>${icon('close')}</button></div>
+    <div class="file-top"><span class="file-icon">${icon(job.state === 'done' ? 'check' : 'video')}</span><div class="file-title"><h3 title="${esc(job.file.name)}">${esc(job.file.name)}</h3><p>${formatBytes(job.file.size)}${info ? `<span>·</span>${formatTime(info.duration)}<span>·</span>${info.width} × ${info.height}${info.audioTracks === 0 ? '<span>·</span>소리 없음' : ''}` : '<span>·</span>재생시간 확인 중'}</p></div><span class="status-badge">${job.state === 'analyzing' || job.state === 'running' ? '<span class="spinner"></span>' : ''}${stateLabel(job)}</span><button class="icon-button remove-file" data-action="remove" data-job="${job.id}" aria-label="${esc(job.file.name)} 목록에서 제거" ${workLocked() ? 'disabled' : ''}>${icon('close')}</button></div>
     ${plan ? `<div class="conversion-info"><span class="process-tag">${modeLabel(job.options.mode)}</span><span>${plan.reencode ? `${info!.width} × ${info!.height} ${icon('arrow')} <strong>${plan.outputWidth} × ${plan.outputHeight}</strong>` : '해상도·화질 유지'}${plan.convertedBytes !== undefined ? ` <span class="converted-size">· 변환 후 ${formatBytes(plan.convertedBytes)}</span>` : ''}</span>${!plan.reencode && job.options.mode !== 'split' ? '<small>선택한 최대 크기 이하여서 재인코딩하지 않아요.</small>' : ''}</div><div class="file-plan">${icon(job.options.mode === 'resize' ? 'video' : 'split')}<strong>${planTitle}</strong><span>${planDetail}</span>${count > 1 ? `<div class="segment-strip" aria-hidden="true">${plan.parts.slice(0, 32).map(() => '<i></i>').join('')}</div>` : ''}</div>` : ''}
     ${job.state === 'running' || job.state === 'stopped' ? `<div class="file-progress"><div><span data-progress-label>${progressText(job)}</span><strong data-progress-percent>${percent}%</strong></div><div class="progress-track" role="progressbar" aria-label="${esc(job.file.name)} 진행률" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${percent}" data-progress-bar><span style="width:${percent}%"></span></div></div>` : ''}
-    ${job.error ? `<div class="file-error">${icon('alert')}<span>${esc(job.error)}</span>${!processing && !inspecting ? `<button class="text-button" data-action="retry" data-job="${job.id}">${icon('retry')} 재시도</button>` : ''}</div>` : ''}
+    ${job.error ? `<div class="file-error">${icon('alert')}<span>${esc(job.error)}</span>${!workLocked() ? `<button class="text-button" data-action="retry" data-job="${job.id}">${icon('retry')} 재시도</button>` : ''}</div>` : ''}
     ${plan ? `<details class="result-details" data-details-job="${job.id}" ${job.expanded || job.state === 'running' ? 'open' : ''}><summary><span>${job.state === 'done' ? '처리 결과' : '예상 결과 및 생성된 파일'}<small>${waitingForCount ? '변환 후 확정' : `${job.results.length} / ${count}`}</small></span>${icon('chevron')}</summary><div class="results"><div class="result-help">${help}</div>${resultRows}${waitingForCount ? `<div class="pending-result">${icon('clock')} 영상 길이 ${formatTime(info!.duration)} · 변환 완료 후 시간 균등 분할</div>` : ''}</div></details>` : ''}
   </article>`;
 }
@@ -272,7 +278,7 @@ function updateProgress(job: Job): void {
 }
 
 async function addFiles(files: File[]): Promise<void> {
-  if (processing || inspecting) { toast('현재 작업이 끝나면 영상을 추가할 수 있어요.'); return; }
+  if (workLocked()) { toast('현재 작업이나 설치 확인이 끝나면 영상을 추가할 수 있어요.'); return; }
   const added: Job[] = [];
   let duplicates = 0;
   for (const file of files) {
@@ -306,7 +312,7 @@ async function inspectItems(items: Job[]): Promise<void> {
 }
 
 async function changeOptions(next: ProcessingOptions): Promise<void> {
-  if (processing || inspecting) { renderSettings(); return; }
+  if (workLocked()) { renderSettings(); return; }
   const waiting = jobs.filter(job => job.state !== 'done');
   const partial = waiting.filter(job => job.results.length > 0);
   if (partial.length && !window.confirm('대기 항목의 설정을 바꾸면 이전 임시 결과를 정리합니다. 필요한 결과를 먼저 저장했나요? 완료 항목과 원본 파일은 유지됩니다.')) { renderSettings(); return; }
@@ -332,7 +338,7 @@ async function acquireWakeLock(): Promise<void> {
 }
 
 async function startBatch(selected?: Job[]): Promise<void> {
-  if (processing || inspecting) return;
+  if (workLocked()) return;
   const items = selected ?? jobs.filter(j => j.plan && ['ready', 'error', 'stopped'].includes(j.state));
   if (!items.length) return;
   if (items.some(j => j.results.length > 0) && !window.confirm('다시 시작하면 선택한 항목의 이전 임시 결과를 새로 만듭니다. 필요한 결과를 먼저 저장했나요? 원본과 다운로드한 파일은 유지됩니다.')) return;
@@ -384,7 +390,7 @@ async function startBatch(selected?: Job[]): Promise<void> {
 }
 
 async function removeJobs(selected: Job[]): Promise<void> {
-  if (processing || inspecting) return;
+  if (workLocked()) return;
   if (selected.some(j => j.results.some(r => !r.original)) && !window.confirm('목록과 임시 결과를 정리할까요? 필요한 결과를 먼저 저장해 주세요. 원본 영상과 이미 다운로드한 파일은 삭제되지 않습니다.')) return;
   inspecting = true;
   renderQueue();
@@ -430,7 +436,7 @@ $('file-input').addEventListener('change', event => {
   input.value = '';
   void addFiles(files);
 });
-$('drop-zone').addEventListener('dragover', event => { event.preventDefault(); if (!processing && !inspecting) $('drop-zone').classList.add('dragging'); });
+$('drop-zone').addEventListener('dragover', event => { event.preventDefault(); if (!workLocked()) $('drop-zone').classList.add('dragging'); });
 $('drop-zone').addEventListener('dragleave', event => { if (!(event.currentTarget as HTMLElement).contains(event.relatedTarget as Node)) $('drop-zone').classList.remove('dragging'); });
 $('drop-zone').addEventListener('drop', event => { event.preventDefault(); $('drop-zone').classList.remove('dragging'); void addFiles(Array.from(event.dataTransfer?.files ?? [])); });
 window.addEventListener('dragover', event => event.preventDefault());
@@ -449,7 +455,7 @@ $('queue').addEventListener('click', async event => {
   if (!job) return;
   if (button.dataset.action === 'download') download(job, Number(button.dataset.part));
   if (button.dataset.action === 'remove') await removeJobs([job]);
-  if (button.dataset.action === 'retry' && !processing && !inspecting) {
+  if (button.dataset.action === 'retry' && !workLocked()) {
     if (!job.plan) await inspectItems([job]);
     if (job.plan) await startBatch([job]);
   }
@@ -461,4 +467,9 @@ window.addEventListener('beforeunload', event => {
   if (processing || jobs.some(j => j.results.some(r => !r.original))) { event.preventDefault(); event.returnValue = ''; }
 });
 setInterval(() => { if (processing) updateOverall(); }, 1000);
+installUI = setupInstall({
+  getWork: () => ({ busy: processing || inspecting, filesSelected: jobs.length > 0, temporaryResults: jobs.some(job => job.results.some(result => !result.original)) }),
+  onStateChange: renderQueue,
+  toast,
+});
 renderSummary();
