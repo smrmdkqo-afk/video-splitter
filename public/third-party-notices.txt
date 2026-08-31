@@ -1,0 +1,18 @@
+Video Splitter — Third-party notices
+
+Mediabunny 1.55.4
+Copyright (c) Vanilagy and contributors
+License: Mozilla Public License 2.0 (MPL-2.0)
+
+This application bundles unmodified portions of Mediabunny to read and write
+media containers and copy encoded packets. The corresponding source code is
+included in the published npm package (src/):
+https://www.npmjs.com/package/mediabunny/v/1.55.4
+https://registry.npmjs.org/mediabunny/-/mediabunny-1.55.4.tgz
+
+Project: https://github.com/Vanilagy/mediabunny
+License text supplied with this website: licenses/mediabunny-MPL-2.0.txt
+License reference: https://www.mozilla.org/en-US/MPL/2.0/
+
+Opening these external source links is optional. Selected videos are not
+transmitted to them or any other server by this application.
