@@ -1,11 +1,12 @@
 import type { WorkerRequest } from './worker.ts';
-import type { SegmentResult, SplitProgress } from './model.ts';
+import type { ProcessingPlan, SegmentResult, SplitProgress } from './model.ts';
 
 type Listener = {
   resolve: (result: unknown) => void;
   reject: (error: Error) => void;
   progress?: (progress: SplitProgress) => void;
   segment?: (segment: SegmentResult) => void;
+  plan?: (plan: ProcessingPlan) => void;
 };
 
 export class WorkerBridge {
@@ -22,6 +23,7 @@ export class WorkerBridge {
       if (!listener) return;
       if (data.type === 'progress') listener.progress?.(data.value);
       if (data.type === 'segment') listener.segment?.(data.value);
+      if (data.type === 'plan') listener.plan?.(data.value);
       if (data.type === 'result') { listener.resolve(data.value); this.listeners.delete(data.id); }
       if (data.type === 'error') {
         const error = new Error(data.message);
@@ -42,7 +44,7 @@ export class WorkerBridge {
     return worker;
   }
 
-  request<T>(request: WorkerRequest, callbacks: Pick<Listener, 'progress' | 'segment'> = {}): Promise<T> {
+  request<T>(request: WorkerRequest, callbacks: Pick<Listener, 'progress' | 'segment' | 'plan'> = {}): Promise<T> {
     return new Promise<T>((resolve, reject) => {
       const worker = this.connect();
       this.listeners.set(request.id, { resolve: value => resolve(value as T), reject, ...callbacks });

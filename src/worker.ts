@@ -1,12 +1,14 @@
-import { inspectVideo, splitVideo } from './engine.ts';
+import { inspectJob, processVideo } from './processor.ts';
 import { createDiskDestination, ensureSpace, removeJobFiles } from './storage.ts';
-import { errorMessage } from './model.ts';
+import { DEFAULT_OPTIONS, errorMessage } from './model.ts';
+import type { ProcessingOptions } from './model.ts';
 
 export type WorkerRequest = {
   id: string;
   action: 'inspect' | 'split' | 'remove' | 'cancel';
   file?: File;
   jobId?: string;
+  options?: ProcessingOptions;
 };
 
 const scope = self as unknown as DedicatedWorkerGlobalScope;
@@ -32,16 +34,17 @@ async function drain(): Promise<void> {
       active = { id: request.id, controller: new AbortController() };
       try {
         let result: unknown;
-        if (request.action === 'inspect') result = await inspectVideo(request.file!);
+        if (request.action === 'inspect') result = await inspectJob(request.file!, request.options ?? DEFAULT_OPTIONS);
         if (request.action === 'remove') await removeJobFiles(request.jobId!);
         if (request.action === 'split') {
-          const info = await inspectVideo(request.file!);
-          if (info.needsSplit) {
-            await removeJobFiles(request.jobId!);
-            await ensureSpace(request.file!.size);
-          }
-          await splitVideo(request.file!, part => createDiskDestination(request.jobId!, part.index), {
+          await removeJobFiles(request.jobId!);
+          await processVideo(request.file!, request.options ?? DEFAULT_OPTIONS, {
+            createResize: () => createDiskDestination(request.jobId!, 0),
+            createSegment: part => createDiskDestination(request.jobId!, part.index),
+            ensureSpace,
+          }, {
             signal: active.controller.signal,
+            onPlan: plan => scope.postMessage({ id: request.id, type: 'plan', value: plan }),
             onProgress: progress => scope.postMessage({ id: request.id, type: 'progress', value: progress }),
             onSegment: segment => scope.postMessage({ id: request.id, type: 'segment', value: segment }),
           });

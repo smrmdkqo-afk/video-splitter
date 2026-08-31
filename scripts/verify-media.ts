@@ -106,7 +106,8 @@ ffmpeg(['-f', 'lavfi', '-i', 'testsrc2=size=320x180:rate=24:duration=24', '-f', 
 const original = await verify('가족 여행.mp4');
 
 // MOV container and phone-style rotation metadata, with the same original encoded bytes.
-ffmpeg(['-i', join(directory, '가족 여행.mp4'), '-map', '0', '-c', 'copy', '-metadata:s:v:0', 'rotate=90', join(directory, '세로.영상.MOV')]);
+ffmpeg(['-display_rotation', '90', '-i', join(directory, '가족 여행.mp4'), '-map', '0', '-c', 'copy', join(directory, '세로.영상.MOV')]);
+assert.equal(probe(join(directory, '세로.영상.MOV')).streams[0].side_data_list?.find((side: any) => side.rotation !== undefined)?.rotation, 90, 'the portrait fixture must actually contain rotation metadata');
 await verify('세로.영상.MOV', 3);
 
 // Variable frame rate and no audio should not be converted to constant frame rate.

@@ -1,6 +1,6 @@
 {
   "name": "video-splitter",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -8,12 +8,14 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 0.0.0.0",
     "test": "node --experimental-strip-types --test tests/*.test.ts",
-    "test:media": "node --experimental-strip-types scripts/verify-media.ts"
+    "test:media": "node --experimental-strip-types scripts/verify-media.ts",
+    "test:resize": "node --experimental-strip-types scripts/verify-resize.ts"
   },
   "dependencies": {
     "mediabunny": "1.55.4"
   },
   "devDependencies": {
+    "@mediabunny/server": "1.55.4",
     "@types/node": "^24.0.0",
     "typescript": "5.9.3",
     "vite": "8.2.2"

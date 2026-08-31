@@ -35,7 +35,72 @@ export interface SplitProgress {
   processedBytes: number;
   part: number;
   partCount: number;
-  phase: 'preparing' | 'copying' | 'finalizing';
+  phase: 'preparing' | 'copying' | 'finalizing' | 'resizing' | 'resize-finalizing' | 'planning';
+  stageFraction?: number;
+}
+
+export type ProcessingMode = 'split' | 'resize' | 'resize-split';
+export type Resolution = 'original' | 1080 | 720 | 480;
+export interface ProcessingOptions { mode: ProcessingMode; resolution: Resolution }
+export const DEFAULT_OPTIONS: ProcessingOptions = { mode: 'split', resolution: 'original' };
+
+export interface ProcessingPlan {
+  source: VideoInfo;
+  options: ProcessingOptions;
+  outputWidth: number;
+  outputHeight: number;
+  reencode: boolean;
+  awaitingSize: boolean;
+  parts: SegmentPlan[];
+  convertedBytes?: number;
+  encoding?: { bitrate: number; estimatedBytes: number };
+}
+
+export function validateOptions(options: ProcessingOptions): ProcessingOptions {
+  if (!['split', 'resize', 'resize-split'].includes(options.mode) || !['original', 1080, 720, 480].includes(options.resolution)) {
+    throw new Error('처리 방식과 출력 해상도를 다시 선택해 주세요.');
+  }
+  return { mode: options.mode, resolution: options.mode === 'split' ? 'original' : options.resolution };
+}
+
+// Fit within an orientation-aware box. Never crop, stretch, or enlarge a smaller source.
+export function resizedDimensions(width: number, height: number, resolution: Resolution): { width: number; height: number } {
+  if (![width, height].every(value => Number.isFinite(value) && value >= 2)) throw new Error('영상 해상도를 확인할 수 없어요.');
+  if (resolution === 'original') return { width, height };
+  const longEdge = ({ 1080: 1920, 720: 1280, 480: 854 })[resolution];
+  if (!longEdge) throw new Error('지원하지 않는 출력 해상도예요.');
+  const scale = Math.min(1, (width >= height ? longEdge : resolution) / width, (width >= height ? resolution : longEdge) / height);
+  if (scale === 1) return { width, height };
+  // Even dimensions are required by common H.264 encoders. Rounding may add <=2px letterboxing.
+  return { width: Math.max(2, Math.floor(width * scale / 2) * 2), height: Math.max(2, Math.floor(height * scale / 2) * 2) };
+}
+
+export function resizedName(original: string): string {
+  return `${original.replace(/\.[^.]+$/, '') || 'video'}.mp4`;
+}
+
+export function processingPlan(file: Pick<File, 'name' | 'size'>, source: VideoInfo, requested: ProcessingOptions, target = TARGET_BYTES): ProcessingPlan {
+  const options = validateOptions(requested);
+  const dimensions = resizedDimensions(source.width, source.height, options.resolution);
+  const reencode = dimensions.width !== source.width || dimensions.height !== source.height;
+  const name = reencode ? resizedName(file.name) : file.name;
+  const parts = options.mode === 'resize'
+    ? [{ index: 1, name, start: 0, end: source.duration, estimatedBytes: reencode ? 0 : file.size }]
+    : reencode ? [] : makePlan(name, file.size, source.duration, target);
+  return { source, options, outputWidth: dimensions.width, outputHeight: dimensions.height, reencode, awaitingSize: reencode, parts };
+}
+
+export function resolvedPlan(plan: ProcessingPlan, file: File, info: VideoInfo, target = TARGET_BYTES): ProcessingPlan {
+  return {
+    ...plan, awaitingSize: false, convertedBytes: file.size, outputWidth: info.width, outputHeight: info.height,
+    parts: plan.options.mode === 'resize'
+      ? [{ index: 1, name: file.name, start: 0, end: info.duration, estimatedBytes: file.size }]
+      : makePlan(file.name, file.size, info.duration, target),
+  };
+}
+
+export function modeLabel(mode: ProcessingMode): string {
+  return ({ split: '분할만', resize: '해상도 변경만', 'resize-split': '해상도 변경 후 분할' })[mode];
 }
 
 export function splitCount(size: number, target = TARGET_BYTES): number {
