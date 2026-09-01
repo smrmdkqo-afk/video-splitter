@@ -53,3 +53,13 @@ test('an already cancelled queue never starts a video', async () => {
   controller.abort();
   await runSequential([1], async () => { assert.fail('must not run'); }, { signal: controller.signal });
 });
+
+test('a decision retry appended while processing runs last and still keeps concurrency one', async () => {
+  const items = [1, 2];
+  const events: number[] = [];
+  await runSequential(items, async item => {
+    events.push(item);
+    if (item === 1) items.push(10);
+  });
+  assert.deepEqual(events, [1, 2, 10]);
+});

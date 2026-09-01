@@ -17,10 +17,7 @@ export async function checkResizeSupport(file: File, plan: ProcessingPlan): Prom
     const fps = Number.isFinite(stats.averagePacketRate) && stats.averagePacketRate > 0 ? stats.averagePacketRate : 30;
     const pixelBudget = plan.outputWidth * plan.outputHeight * Math.min(120, fps) * 0.1;
     const sourceBudget = stats.averageBitrate > 0 ? stats.averageBitrate * 0.9 : pixelBudget;
-    const bitrate = Math.round(Math.max(200_000, Math.min(pixelBudget, sourceBudget)));
-    if (!await canEncodeVideo('avc', { width: plan.outputWidth, height: plan.outputHeight, quality: new Quality({ bitrate }) })) {
-      throw new Error('이 브라우저에서는 선택한 해상도의 H.264 영상 저장을 지원하지 않아요. 더 낮은 해상도나 다른 브라우저를 사용하거나 “분할만”을 선택해 주세요.');
-    }
+    let bitrate = Math.round(Math.max(200_000, Math.min(pixelBudget, sourceBudget)));
     if (typeof WorkerGlobalScope !== 'undefined') {
       let canDraw = false;
       try { canDraw = typeof OffscreenCanvas !== 'undefined' && !!new OffscreenCanvas(2, 2).getContext('2d'); }
@@ -29,6 +26,15 @@ export async function checkResizeSupport(file: File, plan: ProcessingPlan): Prom
     }
     const audioStats = await Promise.all((await input.getAudioTracks()).map(track => track.computePacketStats(120)));
     const audioBitrate = audioStats.reduce((sum, item) => sum + (Number.isFinite(item.averageBitrate) ? item.averageBitrate : 256_000), 0);
+    if (plan.options.forceReencode && plan.strictCap) {
+      // Keyframes are inserted every two seconds. Keep one encoded GOP comfortably below the
+      // selected cap so the verified packet-copy pass can always choose a safe boundary.
+      const gopBudgetBits = plan.maxBytes * 8 * 0.72;
+      bitrate = Math.round(Math.max(200_000, Math.min(bitrate, gopBudgetBits / 2 - audioBitrate)));
+    }
+    if (!await canEncodeVideo('avc', { width: plan.outputWidth, height: plan.outputHeight, quality: new Quality({ bitrate }) })) {
+      throw new Error('이 브라우저에서는 선택한 해상도의 H.264 영상 저장을 지원하지 않아요. 더 낮은 해상도나 다른 브라우저를 사용하거나 “분할만”을 선택해 주세요.');
+    }
     return { bitrate, estimatedBytes: Math.ceil((bitrate + audioBitrate) * plan.source.duration / 8 * 1.15) };
   } finally { input.dispose(); }
 }

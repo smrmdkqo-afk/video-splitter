@@ -105,6 +105,34 @@ async function verify(name: string, count = 4) {
 ffmpeg(['-f', 'lavfi', '-i', 'testsrc2=size=320x180:rate=24:duration=24', '-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=48000:duration=24', '-f', 'lavfi', '-i', 'sine=frequency=880:sample_rate=44100:duration=24', '-map', '0:v', '-map', '1:a', '-map', '2:a', '-c:v', 'libx264', '-preset', 'fast', '-threads', '2', '-g', '48', '-keyint_min', '48', '-sc_threshold', '0', '-bf', '3', '-c:a', 'aac', '-metadata:s:a:0', 'language=kor', '-metadata:s:a:1', 'language=eng', '-shortest', join(directory, '가족 여행.mp4')]);
 const original = await verify('가족 여행.mp4');
 
+// Strict mode chooses the previous safe keyframe, then verifies the real muxed size.
+const strictTarget = Math.floor(original.file.size * 0.32);
+const strictResults: SegmentResult[] = [];
+let strictPlanCount = 0;
+await splitVideo(original.file, async () => memoryDestination(), {
+  targetBytes: strictTarget,
+  splitRule: 'size',
+  onPlan: parts => { strictPlanCount = parts.length; },
+  onSegment: result => { strictResults.push(result); },
+});
+assert.ok(strictResults.length > 1);
+assert.equal(strictResults.length, strictPlanCount);
+assert.ok(strictResults.every(result => result.verifiedCap && result.size <= strictTarget), 'no downloadable result may exceed the selected hard cap');
+for (const result of strictResults) {
+  const outputPath = join(directory, `strict-${result.index}.mp4`);
+  await writeFile(outputPath, new Uint8Array(await result.file.arrayBuffer()));
+  execFileSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-xerror', '-i', outputPath, '-map', '0', '-f', 'null', '-'], { stdio: ['ignore', 'pipe', 'pipe'] });
+}
+assert.equal(strictResults[0].start, 0);
+assert.ok(Math.abs(strictResults.at(-1)!.end - (await inspectVideo(original.file)).duration) < 0.003);
+for (let index = 1; index < strictResults.length; index++) assert.equal(strictResults[index - 1].end, strictResults[index].start);
+console.log(`PASS strict cap: ${strictResults.length} independently playable clips, every real file <= ${strictTarget} bytes`);
+
+await assert.rejects(splitVideo(original.file, async () => { assert.fail('an oversized single GOP must be detected before output creation'); }, {
+  targetBytes: Math.floor(original.file.size / 100), splitRule: 'size',
+}), { name: 'ReencodeRequiredError' });
+console.log('PASS strict cap impossible without re-encoding: explicit decision state and no partial outputs');
+
 // MOV container and phone-style rotation metadata, with the same original encoded bytes.
 ffmpeg(['-display_rotation', '90', '-i', join(directory, '가족 여행.mp4'), '-map', '0', '-c', 'copy', join(directory, '세로.영상.MOV')]);
 assert.equal(probe(join(directory, '세로.영상.MOV')).streams[0].side_data_list?.find((side: any) => side.rotation !== undefined)?.rotation, 90, 'the portrait fixture must actually contain rotation metadata');

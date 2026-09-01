@@ -81,7 +81,7 @@ test('HTML references install assets inside the project and release versions agr
   assert.match(html, /rel="apple-touch-icon" sizes="180x180" href="\.\/icons\/apple-touch-icon\.png"/);
   const pkg = JSON.parse(await read('package.json'));
   const lock = JSON.parse(await read('package-lock.json'));
-  assert.equal(pkg.version, '1.2.0');
+  assert.equal(pkg.version, '1.3.0');
   assert.equal(lock.version, pkg.version); assert.equal(lock.packages[''].version, pkg.version);
   assert.ok((await read('src/main.ts')).includes(`v${pkg.version}`));
   assert.ok((await read('README.md')).includes(`v${pkg.version}`));

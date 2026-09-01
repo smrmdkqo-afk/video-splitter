@@ -43,7 +43,7 @@ test('downsized dimensions are even, fit the maximum box and approximate the ori
 });
 
 test('split-only stays lossless and calculates the original equal-time plan', () => {
-  assert.deepEqual(DEFAULT_OPTIONS, { mode: 'split', resolution: 'original' });
+  assert.deepEqual(DEFAULT_OPTIONS, { mode: 'split', resolution: 'original', splitRule: 'size', maxBytes: 250_000_000, forceReencode: false });
   const plan = processingPlan(source, info, { mode: 'split', resolution: 720 });
   assert.equal(plan.options.resolution, 'original');
   assert.equal(plan.reencode, false);
@@ -81,4 +81,15 @@ test('resize-only keeps the base name and has exactly one output with unknown si
   const ready = resolvedPlan({ ...plan, options: { mode: 'resize-split', resolution: 480 } }, small, info, 250);
   assert.equal(ready.parts.length, 1);
   assert.equal(ready.parts[0].name, '원본.mp4');
+});
+
+test('strict cap options and explicit original-resolution re-encoding are retained in the plan', () => {
+  const options = { mode: 'resize-split', resolution: 'original', splitRule: 'size', maxBytes: 100_000_000, forceReencode: true } as const;
+  const plan = processingPlan(source, info, options);
+  assert.equal(plan.reencode, true);
+  assert.equal(plan.strictCap, true);
+  assert.equal(plan.maxBytes, 100_000_000);
+  assert.equal(plan.outputWidth, info.width);
+  assert.equal(plan.outputHeight, info.height);
+  assert.throws(() => validateOptions({ ...options, maxBytes: 2_000_000_001 }));
 });

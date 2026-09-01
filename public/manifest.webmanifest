@@ -2,7 +2,7 @@
   "id": "/video-splitter/",
   "name": "Video Splitter",
   "short_name": "Video Splitter",
-  "description": "여러 영상을 기기 안에서 시간 분할하고 해상도를 변경합니다.",
+  "description": "여러 영상을 기기 안에서 용량 상한 이하로 검증해 분할하고 해상도를 변경합니다.",
   "lang": "ko",
   "start_url": "./",
   "scope": "./",

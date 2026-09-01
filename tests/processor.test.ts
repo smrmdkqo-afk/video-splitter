@@ -12,7 +12,7 @@ function setup(options: ProcessingOptions, convertedSize = 400, sourceSize = 100
   const info: VideoInfo = { width, height, duration: 120, codec: 'avc', audioTracks: 2, needsSplit: sourceSize > 250, parts: makePlan(file.name, sourceSize, 120, 250) };
   const plan = processingPlan(file, info, options, 250);
   plan.encoding = { bitrate: 1_000_000, estimatedBytes: 500 };
-  const calls = { resize: 0, split: 0, remove: 0, create: 0, spaces: [] as number[], working: undefined as File | undefined };
+  const calls = { resize: 0, split: 0, remove: 0, create: 0, spaces: [] as number[], working: undefined as File | undefined, splitRule: undefined as string | undefined };
   const destination = { target: new BufferTarget(), finish: async () => converted, remove: async () => { calls.remove++; } };
   const storage: ProcessingStorage = {
     createResize: async () => { calls.create++; return destination; },
@@ -29,7 +29,7 @@ function setup(options: ProcessingOptions, convertedSize = 400, sourceSize = 100
       return converted;
     },
     splitVideo: async (working, _create, callbacks) => {
-      calls.split++; calls.working = working;
+      calls.split++; calls.working = working; calls.splitRule = callbacks?.splitRule;
       const parts = makePlan(working.name, working.size, info.duration, callbacks?.targetBytes);
       for (const part of parts) {
         callbacks?.onProgress?.({ fraction: (part.index - 1) / parts.length, processedBytes: 0, part: part.index, partCount: parts.length, phase: 'copying' });
@@ -49,6 +49,14 @@ test('split-only bypasses encoding and passes the original file into the existin
   assert.equal(item.calls.create, 0);
   assert.equal(item.calls.working, item.file);
   assert.equal(results.length, 4);
+});
+
+test('strict cap selection reaches the splitter without opting into re-encoding', async () => {
+  const options = { mode: 'split', resolution: 'original', splitRule: 'size', maxBytes: 250 } as const;
+  const item = setup(options);
+  await processVideo(item.file, options, item.storage, {}, item.operations);
+  assert.equal(item.calls.resize, 0);
+  assert.equal(item.calls.splitRule, 'size');
 });
 
 test('resize-only retains its one completed intermediate for downloading and never splits', async () => {

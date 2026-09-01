@@ -1,5 +1,7 @@
 export const TARGET_BYTES = 250_000_000;
 export const KAKAO_REFERENCE_BYTES = 300_000_000;
+export const MIN_TARGET_BYTES = 10_000_000;
+export const MAX_TARGET_BYTES = 2_000_000_000;
 
 export interface SegmentPlan {
   index: number;
@@ -28,6 +30,7 @@ export interface SegmentResult {
   size: number;
   file: File;
   original?: boolean;
+  verifiedCap?: boolean;
 }
 
 export interface SplitProgress {
@@ -35,14 +38,26 @@ export interface SplitProgress {
   processedBytes: number;
   part: number;
   partCount: number;
-  phase: 'preparing' | 'copying' | 'finalizing' | 'resizing' | 'resize-finalizing' | 'planning';
+  phase: 'analyzing-keyframes' | 'planning' | 'preparing' | 'copying' | 'finalizing' | 'verifying' | 'resizing' | 'resize-finalizing';
   stageFraction?: number;
 }
 
 export type ProcessingMode = 'split' | 'resize' | 'resize-split';
 export type Resolution = 'original' | 1080 | 720 | 480;
-export interface ProcessingOptions { mode: ProcessingMode; resolution: Resolution }
-export const DEFAULT_OPTIONS: ProcessingOptions = { mode: 'split', resolution: 'original' };
+export type SplitRule = 'size' | 'duration';
+export interface ProcessingOptions {
+  mode: ProcessingMode;
+  resolution: Resolution;
+  /** Omitted by older callers means the legacy equal-duration behavior. */
+  splitRule?: SplitRule;
+  /** Decimal bytes. The UI stores the selected MB value here. */
+  maxBytes?: number;
+  /** Explicit consent for a retry that encodes video, even at original resolution. */
+  forceReencode?: boolean;
+}
+export const DEFAULT_OPTIONS: ProcessingOptions = {
+  mode: 'split', resolution: 'original', splitRule: 'size', maxBytes: TARGET_BYTES, forceReencode: false,
+};
 
 export interface ProcessingPlan {
   source: VideoInfo;
@@ -51,16 +66,28 @@ export interface ProcessingPlan {
   outputHeight: number;
   reencode: boolean;
   awaitingSize: boolean;
+  strictCap: boolean;
+  maxBytes: number;
   parts: SegmentPlan[];
   convertedBytes?: number;
   encoding?: { bitrate: number; estimatedBytes: number };
 }
 
 export function validateOptions(options: ProcessingOptions): ProcessingOptions {
-  if (!['split', 'resize', 'resize-split'].includes(options.mode) || !['original', 1080, 720, 480].includes(options.resolution)) {
+  const splitRule = options.splitRule ?? 'duration';
+  const maxBytes = options.maxBytes ?? TARGET_BYTES;
+  if (!['split', 'resize', 'resize-split'].includes(options.mode) || !['original', 1080, 720, 480].includes(options.resolution) || !['size', 'duration'].includes(splitRule)) {
     throw new Error('처리 방식과 출력 해상도를 다시 선택해 주세요.');
   }
-  return { mode: options.mode, resolution: options.mode === 'split' ? 'original' : options.resolution };
+  if (!Number.isInteger(maxBytes) || maxBytes <= 0 || maxBytes > MAX_TARGET_BYTES) throw new Error('파일당 최대 용량을 다시 입력해 주세요.');
+  const forceReencode = !!options.forceReencode;
+  return {
+    mode: options.mode,
+    resolution: options.mode === 'split' && !forceReencode ? 'original' : options.resolution,
+    splitRule,
+    maxBytes,
+    forceReencode,
+  };
 }
 
 // Fit within an orientation-aware box. Never crop, stretch, or enlarge a smaller source.
@@ -80,22 +107,27 @@ export function resizedName(original: string): string {
 }
 
 export function processingPlan(file: Pick<File, 'name' | 'size'>, source: VideoInfo, requested: ProcessingOptions, target = TARGET_BYTES): ProcessingPlan {
-  const options = validateOptions(requested);
+  const options = validateOptions({ ...requested, maxBytes: requested.maxBytes ?? target });
+  const maxBytes = options.maxBytes!;
   const dimensions = resizedDimensions(source.width, source.height, options.resolution);
-  const reencode = dimensions.width !== source.width || dimensions.height !== source.height;
+  const reencode = !!options.forceReencode || dimensions.width !== source.width || dimensions.height !== source.height;
   const name = reencode ? resizedName(file.name) : file.name;
   const parts = options.mode === 'resize'
     ? [{ index: 1, name, start: 0, end: source.duration, estimatedBytes: reencode ? 0 : file.size }]
-    : reencode ? [] : makePlan(name, file.size, source.duration, target);
-  return { source, options, outputWidth: dimensions.width, outputHeight: dimensions.height, reencode, awaitingSize: reencode, parts };
+    : reencode ? [] : makePlan(name, file.size, source.duration, maxBytes);
+  return {
+    source, options, outputWidth: dimensions.width, outputHeight: dimensions.height, reencode,
+    awaitingSize: reencode, strictCap: options.mode !== 'resize' && options.splitRule === 'size', maxBytes, parts,
+  };
 }
 
 export function resolvedPlan(plan: ProcessingPlan, file: File, info: VideoInfo, target = TARGET_BYTES): ProcessingPlan {
+  const maxBytes = target;
   return {
     ...plan, awaitingSize: false, convertedBytes: file.size, outputWidth: info.width, outputHeight: info.height,
     parts: plan.options.mode === 'resize'
       ? [{ index: 1, name: file.name, start: 0, end: info.duration, estimatedBytes: file.size }]
-      : makePlan(file.name, file.size, info.duration, target),
+      : makePlan(file.name, file.size, info.duration, maxBytes),
   };
 }
 
@@ -165,4 +197,11 @@ export function errorMessage(error: unknown): string {
     return error.message || '영상을 처리하지 못했어요. 파일을 확인해 주세요.';
   }
   return '영상을 처리하지 못했어요. 파일을 확인해 주세요.';
+}
+
+export class ReencodeRequiredError extends Error {
+  constructor(message = '이 영상은 안전한 키프레임 간격이 너무 커서 선택한 용량 안으로 재압축 없이 나눌 수 없어요.') {
+    super(message);
+    this.name = 'ReencodeRequiredError';
+  }
 }

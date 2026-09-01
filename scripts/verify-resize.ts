@@ -163,6 +163,35 @@ intermediateRecords.forEach((track, t) => {
 });
 console.log(`PASS actual-size resize then split: ${results.length} playable named clips; all converted packets preserved without a second encode`);
 
+// The explicit fallback may re-encode at original dimensions. Its dense keyframes and
+// cap-aware bitrate must produce only verified pieces below the selected ceiling.
+const fallbackTarget = 500_000;
+await assert.rejects((async () => {
+  const untouchedResults: SegmentResult[] = [];
+  await processVideo(landscape.original, { mode: 'split', resolution: 'original', splitRule: 'size', maxBytes: fallbackTarget }, {
+    createResize: async () => { throw new Error('copy-only mode must not encode'); },
+    createSegment: async () => memoryDestination(),
+    ensureSpace: async () => {},
+  }, { onSegment: result => { untouchedResults.push(result); } });
+})(), { name: 'ReencodeRequiredError' });
+
+const fallbackIntermediate = memoryDestination();
+const fallbackSegments: ReturnType<typeof memoryDestination>[] = [];
+const fallbackResults: SegmentResult[] = [];
+await processVideo(landscape.original, {
+  mode: 'resize-split', resolution: 'original', splitRule: 'size', maxBytes: fallbackTarget, forceReencode: true,
+}, {
+  createResize: async () => fallbackIntermediate,
+  createSegment: async () => { const destination = memoryDestination(); fallbackSegments.push(destination); return destination; },
+  ensureSpace: async () => {},
+}, { onSegment: result => { fallbackResults.push(result); } });
+assert.ok(fallbackIntermediate.state.removed);
+assert.ok(fallbackResults.length > 1);
+assert.ok(fallbackResults.every(result => result.verifiedCap && result.size <= fallbackTarget));
+assert.ok(fallbackSegments.every(destination => destination.state.finished && !destination.state.removed));
+for (const result of fallbackResults) await saveAndVerify(result.file, `fallback-${result.index}.mp4`);
+console.log(`PASS explicit re-encode fallback: original resolution, dense safe keyframes, every real file <= ${fallbackTarget} bytes`);
+
 const controller = new AbortController();
 const canceled = memoryDestination();
 await assert.rejects(resizeVideo(landscape.original, landscape.plan, canceled, {

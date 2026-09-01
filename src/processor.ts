@@ -5,7 +5,8 @@ import { processingPlan, resolvedPlan, TARGET_BYTES } from './model.ts';
 import type { ProcessingOptions, ProcessingPlan, SegmentPlan, SegmentResult, SplitProgress } from './model.ts';
 
 export async function inspectJob(file: File, options: ProcessingOptions, target = TARGET_BYTES): Promise<ProcessingPlan> {
-  const plan = processingPlan(file, await inspectVideo(file, target), options, target);
+  const effectiveTarget = options.maxBytes ?? target;
+  const plan = processingPlan(file, await inspectVideo(file, effectiveTarget), options, effectiveTarget);
   if (plan.reencode) plan.encoding = await checkResizeSupport(file, plan);
   return plan;
 }
@@ -28,7 +29,7 @@ export interface ProcessingCallbacks {
 export const mediaOperations = { inspectJob, inspectVideo, resizeVideo, splitVideo };
 
 export async function processVideo(file: File, requested: ProcessingOptions, storage: ProcessingStorage, callbacks: ProcessingCallbacks = {}, operations = mediaOperations): Promise<void> {
-  const target = callbacks.targetBytes ?? TARGET_BYTES;
+  const target = callbacks.targetBytes ?? requested.maxBytes ?? TARGET_BYTES;
   const throwIfAborted = () => { if (callbacks.signal?.aborted) throw new DOMException('작업을 중지했어요.', 'AbortError'); };
   throwIfAborted();
   let plan = await operations.inspectJob(file, requested, target);
@@ -60,7 +61,10 @@ export async function processVideo(file: File, requested: ProcessingOptions, sto
     throwIfAborted();
     if (plan.options.mode === 'resize' || plan.parts.length === 1) {
       const duration = plan.parts[0].end;
-      await callbacks.onSegment?.({ index: 1, name: working.name, file: working, size: working.size, start: 0, end: duration, duration, original: working === file });
+      await callbacks.onSegment?.({
+        index: 1, name: working.name, file: working, size: working.size, start: 0, end: duration, duration,
+        original: working === file, verifiedCap: plan.strictCap,
+      });
       keepIntermediate = !!intermediate;
       return;
     }
@@ -69,7 +73,11 @@ export async function processVideo(file: File, requested: ProcessingOptions, sto
     await storage.ensureSpace(working.size);
     throwIfAborted();
     await operations.splitVideo(working, storage.createSegment, {
-      targetBytes: target, signal: callbacks.signal,
+      targetBytes: target, splitRule: plan.options.splitRule, signal: callbacks.signal,
+      onPlan: parts => {
+        plan = { ...plan, parts };
+        callbacks.onPlan?.(plan);
+      },
       onSegment: result => callbacks.onSegment?.({ ...result, original: result.original && working === file }),
       onProgress: progress => callbacks.onProgress?.({
         ...progress, stageFraction: progress.fraction,

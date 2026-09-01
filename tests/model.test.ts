@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { splitCount, makePlan, outputName, formatBytes, formatTime, formatEta, escapeHtml, errorMessage, TARGET_BYTES } from '../src/model.ts';
+import { splitCount, makePlan, outputName, formatBytes, formatTime, formatEta, escapeHtml, errorMessage, ReencodeRequiredError, TARGET_BYTES } from '../src/model.ts';
+import { makeSizePlan } from '../src/engine.ts';
 
 test('250 MB means decimal bytes, and only controls the piece count', () => {
   assert.equal(TARGET_BYTES, 250_000_000);
@@ -64,4 +65,19 @@ test('untrusted filenames are escaped before HTML rendering', () => {
 test('cancellation and storage errors have actionable Korean messages', () => {
   assert.match(errorMessage(new DOMException('stopped', 'AbortError')), /중지/);
   assert.match(errorMessage(new DOMException('full', 'QuotaExceededError')), /저장공간/);
+});
+
+test('strict size planning uses the previous safe GOP and preserves a hard payload ceiling', () => {
+  const plan = makeSizePlan('여행.mp4', [
+    { start: 0, end: 2, bytes: 40 },
+    { start: 2, end: 4, bytes: 35 },
+    { start: 4, end: 6, bytes: 50 },
+    { start: 6, end: 8, bytes: 30 },
+  ], 90, 100);
+  assert.deepEqual(plan.map(part => [part.start, part.end, part.estimatedBytes]), [[0, 4, 75], [4, 8, 80]]);
+  assert.deepEqual(plan.map(part => part.name), ['여행_1of2.mp4', '여행_2of2.mp4']);
+});
+
+test('one safe GOP at or above the hard cap requires explicit re-encoding consent', () => {
+  assert.throws(() => makeSizePlan('a.mp4', [{ start: 0, end: 10, bytes: 100 }], 90, 100), ReencodeRequiredError);
 });
